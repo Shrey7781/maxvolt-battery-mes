@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mes}
+      POSTGRES_USER: ${POSTGRES_USER:-mes}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mes}
+    volumes:
+      - mes_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mes} -d ${POSTGRES_DB:-mes}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "5434:5432"
+
+  api:
+    build: .
+    restart: unless-stopped
+    # --reload is for local debugging only; the Dockerfile's own CMD
+    # (used by `docker run` / production compose files) omits it.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-mes}:${POSTGRES_PASSWORD:-mes}@db:5432/${POSTGRES_DB:-mes}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8010:8000"
+    volumes:
+      - ./app:/app/app
+      - ./alembic:/app/alembic
+      - ./scripts:/app/scripts
+
+volumes:
+  mes_pgdata:
