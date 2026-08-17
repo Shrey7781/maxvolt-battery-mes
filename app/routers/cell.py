@@ -9,7 +9,7 @@ from app.security import require_station_access
 from app.services.genealogy import register_cells
 from app.services.judgment import rtn_for_judgments
 from app.services.operators import register_operators
-from app.services.upsert import upsert_all
+from app.services.upsert import dedupe_by_keys, upsert_all
 
 router = APIRouter(prefix="/stations", tags=["Cell Processing"])
 
@@ -22,16 +22,17 @@ def upload_cell_sorting(
     db: Session = Depends(get_db),
     api_key=Depends(require_station_access(STATION)),
 ):
-    rows, judgments = [], []
+    rows = []
     for record in payload.productionDataList:
         data = record.model_dump()
-        judgments.append(data["pass_information"])
         rows.append({**data, "api_key_id": api_key.id, "raw_payload": record.model_dump(mode="json")})
 
     register_cells(db, rows)
     register_operators(db, rows)
-    upsert_all(db, CellSortingReading, rows, conflict_cols=["cell_code", "station_code"])
+    conflict_cols = ["cell_code", "station_code"]
+    upsert_all(db, CellSortingReading, rows, conflict_cols=conflict_cols)
     db.commit()
 
-    rtn_code, msg = rtn_for_judgments(*judgments)
+    persisted = dedupe_by_keys(rows, conflict_cols)
+    rtn_code, msg = rtn_for_judgments(*(r["pass_information"] for r in persisted))
     return StandardResponse(rtnCode=rtn_code, msg=msg, data=None)

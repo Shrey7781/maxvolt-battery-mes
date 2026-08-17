@@ -3,6 +3,23 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 
+def dedupe_by_keys(rows: list[dict], keys: list[str]) -> list[dict]:
+    """Collapses rows sharing the same values for `keys`, keeping the last
+    occurrence — 'latest wins', the same semantics as the upsert itself.
+
+    Exposed separately (not just inlined in upsert_all) so callers can
+    derive other per-request signals — e.g. the rework/NG judgment — from
+    the same view of "what will actually be persisted" rather than from
+    every raw record in the batch, which can disagree with it when a batch
+    contains more than one record for the same natural key.
+    """
+    deduped: dict[tuple, dict] = {}
+    for row in rows:
+        key = tuple(row[c] for c in keys)
+        deduped[key] = row
+    return list(deduped.values())
+
+
 def upsert_all(db: Session, model, rows: list[dict], conflict_cols: list[str]) -> None:
     """Idempotent bulk insert keyed on `conflict_cols`.
 
@@ -16,11 +33,7 @@ def upsert_all(db: Session, model, rows: list[dict], conflict_cols: list[str]) -
     if not rows:
         return
 
-    deduped: dict[tuple, dict] = {}
-    for row in rows:
-        key = tuple(row[c] for c in conflict_cols)
-        deduped[key] = row
-    rows = list(deduped.values())
+    rows = dedupe_by_keys(rows, conflict_cols)
 
     stmt = pg_insert(model).values(rows)
     update_cols = {

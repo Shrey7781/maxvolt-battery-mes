@@ -22,6 +22,7 @@ from app.schemas.module import (
 from app.security import require_station_access
 from app.services.genealogy import (
     ensure_cells_exist,
+    ensure_cells_not_rebound,
     ensure_cells_sorted_ok,
     ensure_modules_exist,
     mark_module_eol_result,
@@ -29,7 +30,7 @@ from app.services.genealogy import (
 )
 from app.services.judgment import rtn_for_judgments
 from app.services.operators import register_operators
-from app.services.upsert import upsert_all
+from app.services.upsert import dedupe_by_keys, upsert_all
 
 router = APIRouter(prefix="/stations", tags=["Module Processing"])
 
@@ -47,6 +48,7 @@ def upload_cell_module_binding(
 
     ensure_cells_exist(db, [r["cell_code"] for r in rows])
     ensure_cells_sorted_ok(db, [r["cell_code"] for r in rows])
+    ensure_cells_not_rebound(db, rows)
     register_modules(db, rows)
     register_operators(db, rows)
     upsert_all(db, CellModuleBinding, rows, conflict_cols=["cell_code"])
@@ -81,18 +83,19 @@ def upload_polarity_detection(
     db: Session = Depends(get_db),
     api_key=Depends(require_station_access("polarity-detection")),
 ):
-    rows, judgments = [], []
+    rows = []
     for record in payload.productionDataList:
         data = record.model_dump()
-        judgments.append(data["pass_information"])
         rows.append({**data, "api_key_id": api_key.id, "raw_payload": record.model_dump(mode="json")})
 
     ensure_modules_exist(db, [r["mod_code"] for r in rows])
     register_operators(db, rows)
-    upsert_all(db, PolarityDetectionReading, rows, conflict_cols=["mod_code", "col_coord"])
+    conflict_cols = ["mod_code", "col_coord"]
+    upsert_all(db, PolarityDetectionReading, rows, conflict_cols=conflict_cols)
     db.commit()
 
-    rtn_code, msg = rtn_for_judgments(*judgments)
+    persisted = dedupe_by_keys(rows, conflict_cols)
+    rtn_code, msg = rtn_for_judgments(*(r["pass_information"] for r in persisted))
     return StandardResponse(rtnCode=rtn_code, msg=msg, data=None)
 
 
@@ -102,18 +105,19 @@ def upload_laser_cleaning(
     db: Session = Depends(get_db),
     api_key=Depends(require_station_access("laser-cleaning")),
 ):
-    rows, judgments = [], []
+    rows = []
     for record in payload.productionDataList:
         data = record.model_dump()
-        judgments.append(data["pass_information"])
         rows.append({**data, "api_key_id": api_key.id, "raw_payload": record.model_dump(mode="json")})
 
     ensure_modules_exist(db, [r["mod_code"] for r in rows])
     register_operators(db, rows)
-    upsert_all(db, LaserCleaningReading, rows, conflict_cols=["mod_code", "cell_coord"])
+    conflict_cols = ["mod_code", "cell_coord"]
+    upsert_all(db, LaserCleaningReading, rows, conflict_cols=conflict_cols)
     db.commit()
 
-    rtn_code, msg = rtn_for_judgments(*judgments)
+    persisted = dedupe_by_keys(rows, conflict_cols)
+    rtn_code, msg = rtn_for_judgments(*(r["pass_information"] for r in persisted))
     return StandardResponse(rtnCode=rtn_code, msg=msg, data=None)
 
 
@@ -123,18 +127,19 @@ def upload_laser_welding(
     db: Session = Depends(get_db),
     api_key=Depends(require_station_access("laser-welding")),
 ):
-    rows, judgments = [], []
+    rows = []
     for record in payload.productionDataList:
         data = record.model_dump()
-        judgments.append(data["pass_information"])
         rows.append({**data, "api_key_id": api_key.id, "raw_payload": record.model_dump(mode="json")})
 
     ensure_modules_exist(db, [r["mod_code"] for r in rows])
     register_operators(db, rows)
-    upsert_all(db, LaserWeldingReading, rows, conflict_cols=["mod_code", "cell_coord"])
+    conflict_cols = ["mod_code", "cell_coord"]
+    upsert_all(db, LaserWeldingReading, rows, conflict_cols=conflict_cols)
     db.commit()
 
-    rtn_code, msg = rtn_for_judgments(*judgments)
+    persisted = dedupe_by_keys(rows, conflict_cols)
+    rtn_code, msg = rtn_for_judgments(*(r["pass_information"] for r in persisted))
     return StandardResponse(rtnCode=rtn_code, msg=msg, data=None)
 
 
@@ -144,25 +149,23 @@ def upload_module_eol_test(
     db: Session = Depends(get_db),
     api_key=Depends(require_station_access("module-eol-test")),
 ):
-    rows, judgments = [], []
+    rows = []
     for record in payload.productionDataList:
         data = record.model_dump()
-        judgments.extend(
-            [
-                data["mod_V_Result"],
-                data["mod_R_Result"],
-                data["mod_IR_Result"],
-                data["mod_DWV_Result"],
-                data["pass_information"],
-            ]
-        )
         rows.append({**data, "api_key_id": api_key.id, "raw_payload": record.model_dump(mode="json")})
 
     ensure_modules_exist(db, [r["mod_code"] for r in rows])
     register_operators(db, rows)
-    upsert_all(db, ModuleEolTestReading, rows, conflict_cols=["mod_code"])
+    conflict_cols = ["mod_code"]
+    upsert_all(db, ModuleEolTestReading, rows, conflict_cols=conflict_cols)
     mark_module_eol_result(db, rows)
     db.commit()
 
+    persisted = dedupe_by_keys(rows, conflict_cols)
+    judgments = [
+        v
+        for r in persisted
+        for v in (r["mod_V_Result"], r["mod_R_Result"], r["mod_IR_Result"], r["mod_DWV_Result"], r["pass_information"])
+    ]
     rtn_code, msg = rtn_for_judgments(*judgments)
     return StandardResponse(rtnCode=rtn_code, msg=msg, data=None)

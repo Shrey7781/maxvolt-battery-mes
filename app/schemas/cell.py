@@ -1,4 +1,4 @@
-from app.schemas.common import CodeStr, JudgmentStr, MESBaseModel, NonNegFloat, ProductionDataRequest
+from app.schemas.common import CodeStr, JudgmentStr, MESBaseModel, NonNegFloat, OptionalEmployeeCode, ProductionDataRequest
 
 
 class CellSortingRecord(MESBaseModel):
@@ -10,7 +10,7 @@ class CellSortingRecord(MESBaseModel):
     nnr: NonNegFloat
     pass_information: JudgmentStr
     usercode: CodeStr
-    employee_code: str | None = None
+    employee_code: OptionalEmployeeCode = None
 
 
 class CellSortingRequest(ProductionDataRequest[CellSortingRecord]):

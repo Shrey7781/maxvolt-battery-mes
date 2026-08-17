@@ -1,6 +1,6 @@
 from pydantic import ConfigDict, Field
 
-from app.schemas.common import CodeStr, JudgmentStr, MESBaseModel, NonNegFloat, ProductionDataRequest
+from app.schemas.common import CodeStr, JudgmentStr, MESBaseModel, NonNegFloat, OptionalEmployeeCode, ProductionDataRequest
 
 
 class ModulePackBindingRecord(MESBaseModel):
@@ -11,7 +11,7 @@ class ModulePackBindingRecord(MESBaseModel):
     bms_code: CodeStr
     station_code: CodeStr
     usercode: CodeStr
-    employee_code: str | None = None
+    employee_code: OptionalEmployeeCode = None
 
 
 class ModulePackBindingRequest(ProductionDataRequest[ModulePackBindingRecord]):
@@ -30,7 +30,7 @@ class LiquidCoolingAirtightnessRecord(MESBaseModel):
     result: JudgmentStr
     station_code: CodeStr
     usercode: CodeStr
-    employee_code: str | None = None
+    employee_code: OptionalEmployeeCode = None
 
 
 class LiquidCoolingAirtightnessRequest(ProductionDataRequest[LiquidCoolingAirtightnessRecord]):
@@ -59,7 +59,11 @@ class PackEolTestData(MESBaseModel):
 
     model_config = ConfigDict(str_strip_whitespace=True, extra="allow")
 
-    test_items: list[PackEolTestItem] = Field(default_factory=list)
+    # Required, min 1 item — matches openapi.yaml's documented contract. A
+    # test_file_data with zero measured items would be a final-inspection
+    # record with nothing actually measured, so an empty array is rejected
+    # rather than silently accepted as "OK, no test items".
+    test_items: list[PackEolTestItem] = Field(min_length=1)
 
 
 class PackEolTestRecord(MESBaseModel):
@@ -68,7 +72,7 @@ class PackEolTestRecord(MESBaseModel):
     test_file_data: PackEolTestData
     pass_information: JudgmentStr
     usercode: CodeStr
-    employee_code: str | None = None
+    employee_code: OptionalEmployeeCode = None
 
 
 class PackEolTestRequest(ProductionDataRequest[PackEolTestRecord]):
@@ -86,7 +90,7 @@ class PackAirtightnessRecord(MESBaseModel):
     result: JudgmentStr
     station_code: CodeStr
     usercode: CodeStr
-    employee_code: str | None = None
+    employee_code: OptionalEmployeeCode = None
 
 
 class PackAirtightnessRequest(ProductionDataRequest[PackAirtightnessRecord]):

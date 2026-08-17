@@ -1,3 +1,4 @@
+import math
 from datetime import datetime
 from typing import Annotated, Generic, TypeVar
 
@@ -30,11 +31,19 @@ def coerce_float(value: object) -> float:
     if isinstance(value, bool):
         raise ValueError(f"{value!r} is not a valid number")
     if isinstance(value, (int, float)):
-        return float(value)
-    try:
-        return float(str(value).strip())
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{value!r} is not a valid number") from exc
+        result = float(value)
+    else:
+        try:
+            result = float(str(value).strip())
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{value!r} is not a valid number") from exc
+    if not math.isfinite(result):
+        # float() accepts "inf"/"nan" (case-insensitively) as valid input,
+        # but Postgres's JSON parser rejects them outright when this value
+        # is later serialized into raw_payload — reject here instead of
+        # surfacing that as an unhandled 500.
+        raise ValueError(f"{value!r} is not a finite number")
+    return result
 
 
 def parse_mes_timestamp(value: object) -> datetime:
@@ -55,6 +64,10 @@ JudgmentStr = Annotated[str, BeforeValidator(normalize_judgment)]
 NonNegFloat = Annotated[float, BeforeValidator(coerce_float), Field(ge=0)]
 MesTimestamp = Annotated[datetime, BeforeValidator(parse_mes_timestamp)]
 CodeStr = Annotated[str, Field(min_length=1, max_length=120)]
+# employee_code is optional everywhere it appears, but still backed by a
+# String(120) column — unlike CodeStr, no min_length, since None/absent is
+# the normal case.
+OptionalEmployeeCode = Annotated[str, Field(max_length=120)] | None
 
 
 class MESBaseModel(BaseModel):

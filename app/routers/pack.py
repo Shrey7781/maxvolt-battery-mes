@@ -18,13 +18,15 @@ from app.schemas.pack import (
 from app.security import require_station_access
 from app.services.genealogy import (
     ensure_modules_exist,
+    ensure_modules_not_rebound,
     ensure_modules_passed_eol,
+    ensure_pack_slots_available,
     ensure_packs_exist,
     register_packs,
 )
 from app.services.judgment import rtn_for_judgments
 from app.services.operators import register_operators
-from app.services.upsert import upsert_all
+from app.services.upsert import dedupe_by_keys, upsert_all
 
 router = APIRouter(prefix="/stations", tags=["Pack Processing"])
 
@@ -42,6 +44,8 @@ def upload_module_pack_binding(
 
     ensure_modules_exist(db, [r["mod_code"] for r in rows])
     ensure_modules_passed_eol(db, [r["mod_code"] for r in rows])
+    ensure_modules_not_rebound(db, rows)
+    ensure_pack_slots_available(db, rows)
     register_packs(db, rows)
     register_operators(db, rows)
     upsert_all(db, ModulePackBinding, rows, conflict_cols=["mod_code"])
@@ -57,18 +61,19 @@ def upload_liquid_cooling_airtightness(
     db: Session = Depends(get_db),
     api_key=Depends(require_station_access("liquid-cooling-airtightness")),
 ):
-    rows, judgments = [], []
+    rows = []
     for record in payload.productionDataList:
         data = record.model_dump()
-        judgments.append(data["result"])
         rows.append({**data, "api_key_id": api_key.id, "raw_payload": record.model_dump(mode="json")})
 
     ensure_packs_exist(db, [r["pack_code"] for r in rows])
     register_operators(db, rows)
-    upsert_all(db, LiquidCoolingAirtightnessReading, rows, conflict_cols=["pack_code"])
+    conflict_cols = ["pack_code"]
+    upsert_all(db, LiquidCoolingAirtightnessReading, rows, conflict_cols=conflict_cols)
     db.commit()
 
-    rtn_code, msg = rtn_for_judgments(*judgments)
+    persisted = dedupe_by_keys(rows, conflict_cols)
+    rtn_code, msg = rtn_for_judgments(*(r["result"] for r in persisted))
     return StandardResponse(rtnCode=rtn_code, msg=msg, data=None)
 
 
@@ -78,10 +83,9 @@ def upload_pack_eol_test(
     db: Session = Depends(get_db),
     api_key=Depends(require_station_access("pack-eol-test")),
 ):
-    rows, judgments = [], []
+    rows = []
     for record in payload.productionDataList:
         data = record.model_dump()
-        judgments.append(data["pass_information"])
         rows.append(
             {
                 "station_code": data["station_code"],
@@ -97,10 +101,12 @@ def upload_pack_eol_test(
 
     ensure_packs_exist(db, [r["pack_code"] for r in rows])
     register_operators(db, rows)
-    upsert_all(db, PackEolTestReading, rows, conflict_cols=["pack_code"])
+    conflict_cols = ["pack_code"]
+    upsert_all(db, PackEolTestReading, rows, conflict_cols=conflict_cols)
     db.commit()
 
-    rtn_code, msg = rtn_for_judgments(*judgments)
+    persisted = dedupe_by_keys(rows, conflict_cols)
+    rtn_code, msg = rtn_for_judgments(*(r["pass_information"] for r in persisted))
     return StandardResponse(rtnCode=rtn_code, msg=msg, data=None)
 
 
@@ -110,16 +116,17 @@ def upload_pack_airtightness(
     db: Session = Depends(get_db),
     api_key=Depends(require_station_access("pack-airtightness")),
 ):
-    rows, judgments = [], []
+    rows = []
     for record in payload.productionDataList:
         data = record.model_dump()
-        judgments.append(data["result"])
         rows.append({**data, "api_key_id": api_key.id, "raw_payload": record.model_dump(mode="json")})
 
     ensure_packs_exist(db, [r["pack_code"] for r in rows])
     register_operators(db, rows)
-    upsert_all(db, PackAirtightnessReading, rows, conflict_cols=["pack_code"])
+    conflict_cols = ["pack_code"]
+    upsert_all(db, PackAirtightnessReading, rows, conflict_cols=conflict_cols)
     db.commit()
 
-    rtn_code, msg = rtn_for_judgments(*judgments)
+    persisted = dedupe_by_keys(rows, conflict_cols)
+    rtn_code, msg = rtn_for_judgments(*(r["result"] for r in persisted))
     return StandardResponse(rtnCode=rtn_code, msg=msg, data=None)

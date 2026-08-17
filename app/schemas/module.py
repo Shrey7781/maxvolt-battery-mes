@@ -1,6 +1,14 @@
 from pydantic import Field
 
-from app.schemas.common import CodeStr, JudgmentStr, MESBaseModel, MesTimestamp, NonNegFloat, ProductionDataRequest
+from app.schemas.common import (
+    CodeStr,
+    JudgmentStr,
+    MESBaseModel,
+    MesTimestamp,
+    NonNegFloat,
+    OptionalEmployeeCode,
+    ProductionDataRequest,
+)
 
 
 class CellModuleBindingRecord(MESBaseModel):
@@ -10,7 +18,7 @@ class CellModuleBindingRecord(MESBaseModel):
     cell_index: int = Field(ge=1)
     station_code: CodeStr
     usercode: CodeStr
-    employee_code: str | None = None
+    employee_code: OptionalEmployeeCode = None
 
 
 class CellModuleBindingRequest(ProductionDataRequest[CellModuleBindingRecord]):
@@ -37,7 +45,7 @@ class PolarityDetectionRecord(MESBaseModel):
     mark_info: CodeStr
     pass_information: JudgmentStr
     usercode: CodeStr
-    employee_code: str | None = None
+    employee_code: OptionalEmployeeCode = None
 
 
 class PolarityDetectionRequest(ProductionDataRequest[PolarityDetectionRecord]):
@@ -52,7 +60,7 @@ class LaserCleaningRecord(MESBaseModel):
     speed: NonNegFloat
     pass_information: JudgmentStr
     usercode: CodeStr
-    employee_code: str | None = None
+    employee_code: OptionalEmployeeCode = None
 
 
 class LaserCleaningRequest(ProductionDataRequest[LaserCleaningRecord]):
@@ -67,7 +75,7 @@ class LaserWeldingRecord(MESBaseModel):
     speed: NonNegFloat
     pass_information: JudgmentStr
     usercode: CodeStr
-    employee_code: str | None = None
+    employee_code: OptionalEmployeeCode = None
 
 
 class LaserWeldingRequest(ProductionDataRequest[LaserWeldingRecord]):
@@ -87,7 +95,7 @@ class ModuleEolTestRecord(MESBaseModel):
     mod_DWV_Result: JudgmentStr
     pass_information: JudgmentStr
     usercode: CodeStr
-    employee_code: str | None = None
+    employee_code: OptionalEmployeeCode = None
 
 
 class ModuleEolTestRequest(ProductionDataRequest[ModuleEolTestRecord]):

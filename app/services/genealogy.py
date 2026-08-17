@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 
 from app.envelope import RTN, MESError
 from app.models.entities import Cell, Module, Pack
+from app.models.module import CellModuleBinding
+from app.models.pack import ModulePackBinding
 from app.services.upsert import upsert_all
 
 """Cross-station referential validation.
@@ -80,6 +82,91 @@ def ensure_modules_passed_eol(db: Session, mod_codes: list[str]) -> None:
         raise MESError(
             RTN.PRECONDITION_FAILED,
             f"Module(s) not eligible for pack binding: {', '.join(problems)}",
+        )
+
+
+def ensure_cells_not_rebound(db: Session, rows: list[dict]) -> None:
+    """A cell already bound to a module can be resubmitted for that SAME
+    module (idempotent retry on a network blip — upsert_all overwrites in
+    place as usual), but binding it to a DIFFERENT module is rejected
+    rather than silently overwritten: a physical cell can't move to a
+    different module after welding, so a change in partner code is far
+    more likely an operator/data error than a legitimate rebind.
+    """
+    by_cell = {r["cell_code"]: r["mod_code"] for r in rows}
+    if not by_cell:
+        return
+    existing = dict(
+        db.execute(
+            select(CellModuleBinding.cell_code, CellModuleBinding.mod_code).where(
+                CellModuleBinding.cell_code.in_(by_cell.keys())
+            )
+        ).all()
+    )
+    conflicts = [
+        f"{cell_code} (already bound to module {existing[cell_code]}, not {new_mod_code})"
+        for cell_code, new_mod_code in by_cell.items()
+        if cell_code in existing and existing[cell_code] != new_mod_code
+    ]
+    if conflicts:
+        raise MESError(RTN.DUPLICATE, f"Cell(s) already bound to a different module: {', '.join(sorted(conflicts))}")
+
+
+def ensure_modules_not_rebound(db: Session, rows: list[dict]) -> None:
+    """Same protection as ensure_cells_not_rebound, one level up: a module
+    already bound to a pack can be resubmitted for that SAME pack, but not
+    silently reassigned to a different one.
+    """
+    by_module = {r["mod_code"]: r["pack_code"] for r in rows}
+    if not by_module:
+        return
+    existing = dict(
+        db.execute(
+            select(ModulePackBinding.mod_code, ModulePackBinding.pack_code).where(
+                ModulePackBinding.mod_code.in_(by_module.keys())
+            )
+        ).all()
+    )
+    conflicts = [
+        f"{mod_code} (already bound to pack {existing[mod_code]}, not {new_pack_code})"
+        for mod_code, new_pack_code in by_module.items()
+        if mod_code in existing and existing[mod_code] != new_pack_code
+    ]
+    if conflicts:
+        raise MESError(RTN.DUPLICATE, f"Module(s) already bound to a different pack: {', '.join(sorted(conflicts))}")
+
+
+def ensure_pack_slots_available(db: Session, rows: list[dict]) -> None:
+    """`module_pack_bindings` has a second unique constraint beyond the
+    upsert's own conflict key (mod_code): (pack_code, mod_index) — a slot
+    within a pack can only be occupied by one module. Without this check, a
+    second, different module claiming an already-taken slot hits that
+    constraint at the DB level and falls through to the generic duplicate-
+    key handler, which can't say which slot collided. Check explicitly
+    first so the error names the slot and the module that already holds
+    it. A resubmission of the SAME module for the SAME slot (retry) is
+    unaffected — ensure_modules_not_rebound covers that identity already.
+    """
+    by_slot = {(r["pack_code"], r["mod_index"]): r["mod_code"] for r in rows}
+    if not by_slot:
+        return
+    pack_codes = {slot[0] for slot in by_slot}
+    existing = {
+        (pack_code, mod_index): mod_code
+        for pack_code, mod_index, mod_code in db.execute(
+            select(ModulePackBinding.pack_code, ModulePackBinding.mod_index, ModulePackBinding.mod_code).where(
+                ModulePackBinding.pack_code.in_(pack_codes)
+            )
+        ).all()
+    }
+    conflicts = [
+        f"{pack_code} slot {mod_index} (already occupied by module {existing[(pack_code, mod_index)]}, not {new_mod_code})"
+        for (pack_code, mod_index), new_mod_code in by_slot.items()
+        if (pack_code, mod_index) in existing and existing[(pack_code, mod_index)] != new_mod_code
+    ]
+    if conflicts:
+        raise MESError(
+            RTN.DUPLICATE, f"Pack slot(s) already occupied by a different module: {', '.join(sorted(conflicts))}"
         )
 
 
