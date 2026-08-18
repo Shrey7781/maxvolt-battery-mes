@@ -73,7 +73,27 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
 
 
 @app.get("/healthz", include_in_schema=False)
-def healthz() -> dict:
-    with SessionLocal() as db:
-        db.execute(text("SELECT 1"))
-    return {"status": "ok"}
+def healthz() -> JSONResponse:
+    # Unlike every station endpoint, this deliberately does NOT always
+    # return HTTP 200 — infra health checks (AWS ALB target group, ECS task
+    # health check) key off the raw HTTP status, not the response body, so
+    # a DB outage needs to surface as a real non-200 to pull the container
+    # out of rotation, rather than look "healthy" under the envelope's
+    # normal always-200 convention.
+    container_status = "ok"  # reaching this line means the process is alive and serving requests
+
+    try:
+        with SessionLocal() as db:
+            db.execute(text("SELECT 1"))
+        db_status = "ok"
+    except Exception:
+        logger.exception("Database health check failed")
+        db_status = "unreachable"
+
+    healthy = db_status == "ok"
+    body = {
+        "status": "ok" if healthy else "degraded",
+        "container": container_status,
+        "database": db_status,
+    }
+    return JSONResponse(status_code=200 if healthy else 503, content=body)
