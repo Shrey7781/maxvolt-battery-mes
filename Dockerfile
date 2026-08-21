@@ -8,7 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential libpq-dev curl \
+    && apt-get install -y --no-install-recommends build-essential libpq-dev curl libcap2-bin \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -17,14 +17,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN chmod +x entrypoint.sh \
     && useradd --create-home --uid 1000 mes \
-    && chown -R mes:mes /app
+    && chown -R mes:mes /app \
+    && setcap 'cap_net_bind_service=+ep' "$(readlink -f "$(which python3)")"
 
 USER mes
 
-EXPOSE 8000
+EXPOSE 80
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD curl -fsS http://localhost:8000/healthz || exit 1
+    CMD curl -fsS http://localhost:80/healthz || exit 1
 
 ENTRYPOINT ["./entrypoint.sh"]
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "80"]
