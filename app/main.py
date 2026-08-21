@@ -72,6 +72,16 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
     return _envelope(RTN.INTERNAL_ERROR, "Internal server error")
 
 
+@app.get("/", include_in_schema=False)
+def root() -> dict:
+    # Plain liveness ping — some infra health checks (e.g. an ALB target
+    # group's default path) hit "/" rather than /healthz. Kept intentionally
+    # dumb (no DB check) so /healthz stays the one source of truth for real
+    # infra status; this just needs to return 200 fast whenever the process
+    # is up.
+    return {"service": app.title, "version": app.version, "status": "ok"}
+
+
 @app.get("/healthz", include_in_schema=False)
 def healthz() -> JSONResponse:
     # Unlike every station endpoint, this deliberately does NOT always
