@@ -18,10 +18,22 @@ from app.routers import cell, module, pack
 logging.basicConfig(level=settings.log_level)
 logger = logging.getLogger("mes")
 
+# Swagger UI / ReDoc / the raw OpenAPI schema expose the full interface
+# contract (endpoints, field names, validation rules) with no auth — fine
+# for local development, not for a publicly reachable deployment where
+# there's no legitimate interactive use case (device integrators already
+# have the spec via the vendor-facing Excel doc). Disabled outright once
+# ENVIRONMENT is "production" (the deployed default — see config.py);
+# local dev's .env explicitly sets ENVIRONMENT=development to keep them on.
+_docs_enabled = settings.environment != "production"
+
 app = FastAPI(
     title="MaxVolt Energy - Battery Production Line MES API",
     version="1.0.0",
     description="Backend for the robotic battery assembly line station interfaces.",
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
 )
 
 app.state.limiter = limiter
