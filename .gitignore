@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+uat_vendor_api_keys.txt
