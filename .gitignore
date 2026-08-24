@@ -3,4 +3,6 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+.pytest_cache/
 uat_vendor_api_keys.txt
+uat_vendor_api_spec.xlsx
