@@ -60,7 +60,21 @@ def parse_mes_timestamp(value: object) -> datetime:
     raise ValueError(f"{value!r} does not match expected timestamp format yyyy-MM-dd HH:mm:ss")
 
 
+_WORK_ORDER_STATUS_VALUES = {"completed", "pending"}
+
+
+def normalize_work_order_status(value: object) -> str:
+    """Work order current_status is a closed set, unlike the free-text
+    fields elsewhere: 'completed' once the pack's work order line is done,
+    'pending' otherwise. Case-insensitive on input, lowercase on output."""
+    text = str(value).strip().lower()
+    if text not in _WORK_ORDER_STATUS_VALUES:
+        raise ValueError(f"invalid current_status {value!r}; expected 'completed' or 'pending'")
+    return text
+
+
 JudgmentStr = Annotated[str, BeforeValidator(normalize_judgment)]
+WorkOrderStatusStr = Annotated[str, BeforeValidator(normalize_work_order_status)]
 NonNegFloat = Annotated[float, BeforeValidator(coerce_float), Field(ge=0)]
 MesTimestamp = Annotated[datetime, BeforeValidator(parse_mes_timestamp)]
 CodeStr = Annotated[str, Field(min_length=1, max_length=120)]

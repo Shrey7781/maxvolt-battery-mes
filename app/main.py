@@ -13,7 +13,7 @@ from app.config import settings
 from app.database import SessionLocal
 from app.envelope import RTN, MESError, StandardResponse
 from app.rate_limit import limiter
-from app.routers import cell, module, pack
+from app.routers import cell, module, pack, work_order
 
 logging.basicConfig(level=settings.log_level)
 logger = logging.getLogger("mes")
@@ -42,6 +42,7 @@ app.add_middleware(SlowAPIMiddleware)
 app.include_router(cell.router)
 app.include_router(module.router)
 app.include_router(pack.router)
+app.include_router(work_order.router)
 
 
 def _envelope(rtn_code: int, msg: str) -> JSONResponse:

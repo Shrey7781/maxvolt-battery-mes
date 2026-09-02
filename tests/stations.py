@@ -10,4 +10,5 @@ STATIONS = [
     "liquid-cooling-airtightness",
     "pack-eol-test",
     "pack-airtightness",
+    "work-order",
 ]
