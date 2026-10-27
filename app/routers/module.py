@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -91,7 +92,14 @@ def upload_polarity_detection(
     ensure_modules_exist(db, [r["mod_code"] for r in rows])
     register_operators(db, rows)
     conflict_cols = ["mod_code", "col_coord"]
-    upsert_all(db, PolarityDetectionReading, rows, conflict_cols=conflict_cols)
+    upsert_all(
+        db,
+        PolarityDetectionReading,
+        rows,
+        conflict_cols=conflict_cols,
+        # Matches the md5-based unique index — see app/models/module.py.
+        conflict_target=[PolarityDetectionReading.mod_code, func.md5(PolarityDetectionReading.col_coord)],
+    )
     db.commit()
 
     persisted = dedupe_by_keys(rows, conflict_cols)
@@ -112,7 +120,7 @@ def upload_laser_cleaning(
 
     ensure_modules_exist(db, [r["mod_code"] for r in rows])
     register_operators(db, rows)
-    conflict_cols = ["mod_code", "cell_coord"]
+    conflict_cols = ["mod_code", "mark_info"]
     upsert_all(db, LaserCleaningReading, rows, conflict_cols=conflict_cols)
     db.commit()
 
@@ -132,10 +140,18 @@ def upload_laser_welding(
         data = record.model_dump()
         rows.append({**data, "api_key_id": api_key.id, "raw_payload": record.model_dump(mode="json")})
 
+    # No register_operators here (like Auto Stacking): this station no longer
+    # sends usercode — see LaserWeldingRecord.
     ensure_modules_exist(db, [r["mod_code"] for r in rows])
-    register_operators(db, rows)
     conflict_cols = ["mod_code", "cell_coord"]
-    upsert_all(db, LaserWeldingReading, rows, conflict_cols=conflict_cols)
+    upsert_all(
+        db,
+        LaserWeldingReading,
+        rows,
+        conflict_cols=conflict_cols,
+        # Matches the md5-based unique index — see app/models/module.py.
+        conflict_target=[LaserWeldingReading.mod_code, func.md5(LaserWeldingReading.cell_coord)],
+    )
     db.commit()
 
     persisted = dedupe_by_keys(rows, conflict_cols)

@@ -1,6 +1,15 @@
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
 
-from app.schemas.common import CodeStr, JudgmentStr, MESBaseModel, NonNegFloat, OptionalEmployeeCode, ProductionDataRequest
+from app.schemas.common import (
+    CodeStr,
+    JudgmentStr,
+    MESBaseModel,
+    NonNegFloat,
+    OptionalCodeStr,
+    OptionalEmployeeCode,
+    ProductionDataRequest,
+    SignedFloat,
+)
 
 
 class ModulePackBindingRecord(MESBaseModel):
@@ -20,17 +29,28 @@ class ModulePackBindingRequest(ProductionDataRequest[ModulePackBindingRecord]):
 
 class LiquidCoolingAirtightnessRecord(MESBaseModel):
     proline_code: CodeStr
-    pack_code: CodeStr
+    # The station only generates pack_code when the plate passes, so it's
+    # absent/empty on an NG result (vendor, 2026-10-27). Required on OK.
+    pack_code: OptionalCodeStr = None
+    # Liquid cooling plate barcode — the natural key. Always sent, OK or NG;
+    # it's stuck on the plate, so a retest of the same plate sends the same
+    # cooled_code (vendor, 2026-10-27).
     cooled_code: CodeStr
-    chargetime: NonNegFloat
-    holdtime: NonNegFloat
-    testtime: NonNegFloat
-    pressure: NonNegFloat
-    leakage: NonNegFloat
+    chargetime: NonNegFloat  # seconds
+    holdtime: NonNegFloat  # seconds
+    testtime: NonNegFloat  # seconds
+    pressure: NonNegFloat  # kPa
+    leakage: SignedFloat  # Pa — can legitimately be negative, see SignedFloat
     result: JudgmentStr
     station_code: CodeStr
     usercode: CodeStr
     employee_code: OptionalEmployeeCode = None
+
+    @model_validator(mode="after")
+    def _pack_code_required_on_ok(self):
+        if self.result == "OK" and self.pack_code is None:
+            raise ValueError("pack_code is required when result is OK")
+        return self
 
 
 class LiquidCoolingAirtightnessRequest(ProductionDataRequest[LiquidCoolingAirtightnessRecord]):
@@ -82,11 +102,11 @@ class PackEolTestRequest(ProductionDataRequest[PackEolTestRecord]):
 class PackAirtightnessRecord(MESBaseModel):
     proline_code: CodeStr
     pack_code: CodeStr
-    chargetime: NonNegFloat
-    holdtime: NonNegFloat
-    testtime: NonNegFloat
-    pressure: NonNegFloat
-    leakage: NonNegFloat
+    chargetime: NonNegFloat  # seconds
+    holdtime: NonNegFloat  # seconds
+    testtime: NonNegFloat  # seconds
+    pressure: NonNegFloat  # kPa
+    leakage: SignedFloat  # Pa — can legitimately be negative, see SignedFloat
     result: JudgmentStr
     station_code: CodeStr
     usercode: CodeStr

@@ -12,7 +12,7 @@ from app.models.base import TimestampMixin
 A row here means "this code has been seen and is legitimate" — it is
 created as a side effect of the station that first introduces the
 identity (cell-sorting for cells, cell-module-binding for modules,
-module-pack-binding for packs), and checked by every downstream station
+liquid-cooling-airtightness for packs), and checked by every downstream station
 that references the code. See app/services/genealogy.py.
 """
 
@@ -52,8 +52,8 @@ class Pack(Base, TimestampMixin):
 
 class Operator(Base, TimestampMixin):
     """Traceability-only master table — auto-registered from `usercode` on
-    every station submission (all 11 endpoints except Auto Stacking, which
-    has no operator field). Never blocks ingestion and requires no
+    every station submission (all 11 endpoints except Auto Stacking and
+    Laser Welding, which send no usercode). Never blocks ingestion and requires no
     pre-provisioning; see app/services/operators.py."""
 
     __tablename__ = "operators"

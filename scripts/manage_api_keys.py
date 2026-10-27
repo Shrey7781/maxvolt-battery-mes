@@ -11,8 +11,8 @@ Run inside the container, e.g.:
 
 Station slugs match the router paths in openapi.yaml / app/routers/*.py:
 cell-sorting, cell-module-binding, auto-stacking, polarity-detection,
-laser-cleaning, laser-welding, module-eol-test, module-pack-binding,
-liquid-cooling-airtightness, pack-eol-test, pack-airtightness, work-order.
+laser-cleaning, laser-welding, module-eol-test, liquid-cooling-airtightness,
+module-pack-binding, pack-eol-test, pack-airtightness, work-order.
 work-order is not in the vendor's original interface spec -- it's this
 project's own addition for vendor-pushed work order data, posted by one or
 two station devices whose identity isn't finalized yet.

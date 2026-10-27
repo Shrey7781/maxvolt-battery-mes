@@ -86,11 +86,16 @@ and 4 don't apply to it — see Data model below for why.)
    existence, `ensure_*_sorted_ok`/`ensure_*_passed_eol` for upstream result gating, `ensure_*_not_rebound`
    for identity-reassignment protection. These raise `MESError` and must run **before** any DB write.
 4. `register_operators` (`app/services/operators.py`) — auto-upserts `usercode`/`employee_code`
-   into the `operators` master table (all stations except Auto Stacking, which has neither field).
+   into the `operators` master table (all stations except Auto Stacking, which has neither field, and
+   Laser Welding, which only sends the optional `employee_code` since the vendor's 2026-10 spec
+   revision removed its `usercode`).
 5. `upsert_all` (`app/services/upsert.py`) — idempotent `INSERT ... ON CONFLICT DO UPDATE` keyed on
    the station's natural key(s). **Always call `dedupe_by_keys` (or reuse `upsert_all`'s
    deduplication) before deriving judgment/rtn info from the batch** — a single request can contain
    more than one record for the same natural key, and only the last one actually gets persisted.
+   On conflict it overwrites **only the columns present in the row dicts** — a column you don't pass
+   keeps its stored value (this is what stops `register_modules` from wiping
+   `Module.eol_pass_information`). To clear a column on resubmission, pass it explicitly as `None`.
 6. `db.commit()`.
 7. Compute `rtnCode`/`msg` via `rtn_for_judgments(*judgment_values)` (`app/services/judgment.py`) —
    pass every judgment column relevant to that station (a station can have several, e.g.
@@ -102,10 +107,28 @@ and 4 don't apply to it — see Data model below for why.)
   event history — a device retry overwrites in place, so each table reflects **latest state only**
   per natural key). Every reading table carries a nullable `api_key_id` FK and a `raw_payload` JSONB
   column holding the full original request record.
+- Polarity `col_coord` and laser-welding `cell_coord` are vision-system coordinate lists of up to
+  10000 chars (`LongCodeStr`, stored as `Text`) — too long for a btree index entry (~2.7KB cap), so
+  their `(mod_code, coord)` natural keys are unique indexes on `(mod_code, md5(coord))`, and those
+  two routes pass the matching expression to `upsert_all(..., conflict_target=...)`. Any new station
+  with an unbounded natural-key column needs the same treatment. Laser cleaning's key is
+  `(mod_code, mark_info)` (`mark_info` replaced `cell_coord` in the 2026-10 spec revision).
+- Liquid cooling airtightness is keyed on the plate (`cooled_code`), not the pack: per the vendor
+  (2026-10-27) an NG result still uploads the plate barcode but no `pack_code` (empty/absent → `None`;
+  required when `result` is OK), and a retest of the same plate sends the same `cooled_code`. NG rows are
+  upserted without the `pack_code` column so a failed retest of a plate that already passed keeps its
+  pack link. A plate already linked to a pack can't be reposted for a different one
+  (`ensure_plates_not_rebound`, 409), and a pack has exactly one plate — `pack_code` stays unique
+  (nullable, so NG rows don't collide) and a second plate for the same pack is rejected
+  (`ensure_packs_have_one_plate`, 409). `module-pack-binding` additionally requires the pack's
+  liquid cooling result to be OK (`ensure_packs_passed_liquid_cooling`, 422 — also for a pack with no
+  liquid cooling record, e.g. one created before the station reorder).
 - Four master/identity tables in `app/models/entities.py` (`cells`, `modules`, `packs`,
   `operators`) enforce cross-station referential integrity via real Postgres FKs from every
   downstream reading table's natural-key column. `cells`/`modules`/`packs` are created as identities
-  are first seen (by `cell-sorting`, `cell-module-binding`, `module-pack-binding` respectively) and
+  are first seen (by `cell-sorting`, `cell-module-binding`, `liquid-cooling-airtightness` respectively
+  — liquid cooling is the first pack station since the vendor's 2026-10 spec revision, and
+  `module-pack-binding` now requires the pack to already exist) and
   additionally cache the latest pass/fail judgment needed for gating the next station
   (`Cell.pass_information`, `Module.eol_pass_information`) — see `genealogy.py`'s module docstring
   for exactly which binding points gate on result vs. mere existence.
