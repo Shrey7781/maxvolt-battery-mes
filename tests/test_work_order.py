@@ -8,7 +8,7 @@ chain (reusing helpers from test_cell_module_binding / test_module_pack_flow)
 so pack_barcode lines up with an actual pack_code and its NG signals."""
 
 from tests.test_cell_module_binding import bind, sort_cell
-from tests.test_module_pack_flow import eol_test, new_ok_module, pack_bind
+from tests.test_module_pack_flow import eol_test, new_ok_module, new_pack, pack_bind
 
 
 def pack_eol_test(client, api_keys, pack_code, result="OK"):
@@ -28,10 +28,11 @@ def pack_eol_test(client, api_keys, pack_code, result="OK"):
 
 
 def new_ok_pack(client, api_keys, unique_code):
-    """Cell OK -> module OK (EOL) -> bound to a fresh pack. Returns pack_code."""
+    """Cell OK -> module OK (EOL) -> bound to a fresh pack (registered by
+    liquid-cooling-airtightness). Returns pack_code."""
     mod_code = new_ok_module(client, api_keys, unique_code)
     eol_test(client, api_keys, mod_code, result="OK")
-    pack_code = unique_code("PACK")
+    pack_code = new_pack(client, api_keys, unique_code)
     r = pack_bind(client, api_keys, mod_code, pack_code)
     assert r.json()["rtnCode"] == 200
     return mod_code, pack_code
@@ -64,8 +65,8 @@ def test_success(client, api_keys, unique_code):
 
 def test_no_genealogy_gate_against_packs_table(client, api_keys, unique_code):
     # pack_barcode need not correspond to any existing packs.pack_code row —
-    # work orders can arrive before, after, or without a module-pack-binding
-    # ever landing for it.
+    # work orders can arrive before, after, or without the pack ever being
+    # registered on the line.
     r = client.post(
         "/stations/work-order/data",
         json=_payload(unique_code("NEVER-BOUND")),
@@ -303,7 +304,7 @@ def test_summary_cell_level_ng_marks_rejected(client, api_keys, unique_code):
     sort_cell(client, api_keys, cell_code, result="OK")
     assert bind(client, api_keys, cell_code, mod_code).json()["rtnCode"] == 200
     eol_test(client, api_keys, mod_code, result="OK")
-    pack_code = unique_code("PACK")
+    pack_code = new_pack(client, api_keys, unique_code)
     assert pack_bind(client, api_keys, mod_code, pack_code).json()["rtnCode"] == 200
 
     # A later re-sort flips the already-bound cell to NG — the pack it's

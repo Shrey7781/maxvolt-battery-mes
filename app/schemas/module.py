@@ -2,7 +2,9 @@ from pydantic import Field
 
 from app.schemas.common import (
     CodeStr,
+    CodeStr255,
     JudgmentStr,
+    LongCodeStr,
     MESBaseModel,
     MesTimestamp,
     NonNegFloat,
@@ -41,8 +43,8 @@ class AutoStackingRequest(ProductionDataRequest[AutoStackingRecord]):
 class PolarityDetectionRecord(MESBaseModel):
     station_code: CodeStr
     mod_code: CodeStr
-    col_coord: CodeStr
-    mark_info: CodeStr
+    col_coord: LongCodeStr
+    mark_info: CodeStr255
     pass_information: JudgmentStr
     usercode: CodeStr
     employee_code: OptionalEmployeeCode = None
@@ -55,7 +57,10 @@ class PolarityDetectionRequest(ProductionDataRequest[PolarityDetectionRecord]):
 class LaserCleaningRecord(MESBaseModel):
     station_code: CodeStr
     mod_code: CodeStr
-    cell_coord: CodeStr
+    # Mark point coordinates (a visual-recognition feature pattern on the
+    # cell product — short). Replaced cell_coord in the vendor's 2026-10 spec
+    # revision.
+    mark_info: CodeStr
     cleaning_power: NonNegFloat
     speed: NonNegFloat
     pass_information: JudgmentStr
@@ -70,11 +75,14 @@ class LaserCleaningRequest(ProductionDataRequest[LaserCleaningRecord]):
 class LaserWeldingRecord(MESBaseModel):
     station_code: CodeStr
     mod_code: CodeStr
-    cell_coord: CodeStr
+    cell_coord: LongCodeStr
     welding_power: NonNegFloat
     speed: NonNegFloat
     pass_information: JudgmentStr
-    usercode: CodeStr
+    # No usercode: the vendor's 2026-10 spec revision removed it — this
+    # station only uploads the optional operator name. A device still sending
+    # usercode is not rejected; it's dropped like any other unknown field
+    # (MESBaseModel extra="ignore").
     employee_code: OptionalEmployeeCode = None
 
 

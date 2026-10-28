@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.envelope import RTN, MESError
 from app.models.entities import Cell, Module, Pack
 from app.models.module import CellModuleBinding
-from app.models.pack import ModulePackBinding
+from app.models.pack import LiquidCoolingAirtightnessReading, ModulePackBinding
 from app.services.upsert import upsert_all
 
 """Cross-station referential validation.
@@ -12,7 +12,13 @@ from app.services.upsert import upsert_all
 Each 'ensure_*_exist' call is a required-upstream-station gate: e.g. a
 module can't be stacked, cleaned, welded, EOL-tested, or bound to a pack
 unless it was first created via cell-module-binding. Each 'register_*'
-call is what creates that identity in the first place.
+call is what creates that identity in the first place: cells at
+cell-sorting, modules at cell-module-binding, packs at
+liquid-cooling-airtightness (the first pack station — moved ahead of
+module-pack-binding in the vendor's 2026-10 spec revision; module-pack-
+binding now requires the pack to exist instead of creating it). Only an OK
+liquid cooling result carries a pack_code, so only a plate that passed
+creates a pack.
 
 On top of existence, two binding points also gate on the upstream result,
 not just presence — an NG part shouldn't advance to the next assembly
@@ -20,7 +26,9 @@ step even though its identity is known:
   - cell-module-binding requires the cell's latest cell-sorting result to
     be OK (ensure_cells_sorted_ok).
   - module-pack-binding requires the module to have completed
-    module-eol-test with an OK result (ensure_modules_passed_eol).
+    module-eol-test with an OK result (ensure_modules_passed_eol), and the
+    pack's latest liquid-cooling-airtightness result to be OK
+    (ensure_packs_passed_liquid_cooling).
 Intermediate module stations (auto-stacking, polarity-detection,
 laser-cleaning, laser-welding) are not sequenced against each other here
 — there's no fixed required order between them being asserted, only that
@@ -47,7 +55,7 @@ def ensure_modules_exist(db: Session, mod_codes: list[str]) -> None:
 
 
 def ensure_packs_exist(db: Session, pack_codes: list[str]) -> None:
-    _check_exist(db, Pack.pack_code, pack_codes, "not recorded by module-pack-binding")
+    _check_exist(db, Pack.pack_code, pack_codes, "not recorded by liquid-cooling-airtightness")
 
 
 def ensure_cells_sorted_ok(db: Session, cell_codes: list[str]) -> None:
@@ -82,6 +90,36 @@ def ensure_modules_passed_eol(db: Session, mod_codes: list[str]) -> None:
         raise MESError(
             RTN.PRECONDITION_FAILED,
             f"Module(s) not eligible for pack binding: {', '.join(problems)}",
+        )
+
+
+def ensure_packs_passed_liquid_cooling(db: Session, pack_codes: list[str]) -> None:
+    """Assumes ensure_packs_exist already passed for these codes. A pack
+    only gets created by an OK liquid cooling result, but its plate can be
+    retested NG afterwards (the row keeps its pack_code), and packs created
+    by module-pack-binding before the 2026-10 station reorder have no liquid
+    cooling record at all — both are blocked, same as the module EOL gate."""
+    codes = sorted(set(pack_codes))
+    if not codes:
+        return
+    found = dict(
+        db.execute(
+            select(LiquidCoolingAirtightnessReading.pack_code, LiquidCoolingAirtightnessReading.result).where(
+                LiquidCoolingAirtightnessReading.pack_code.in_(codes)
+            )
+        ).all()
+    )
+    problems = []
+    for code in codes:
+        result = found.get(code)
+        if result is None:
+            problems.append(f"{code} (no liquid-cooling-airtightness record)")
+        elif result != "OK":
+            problems.append(f"{code} (liquid-cooling-airtightness result NG)")
+    if problems:
+        raise MESError(
+            RTN.PRECONDITION_FAILED,
+            f"Pack(s) not eligible for module binding: {', '.join(problems)}",
         )
 
 
@@ -134,6 +172,72 @@ def ensure_modules_not_rebound(db: Session, rows: list[dict]) -> None:
     ]
     if conflicts:
         raise MESError(RTN.DUPLICATE, f"Module(s) already bound to a different pack: {', '.join(sorted(conflicts))}")
+
+
+def ensure_plates_not_rebound(db: Session, rows: list[dict]) -> None:
+    """Same protection for liquid cooling plates: a plate's barcode is
+    stuck on it and the plate isn't swapped between packs, so once a
+    cooled_code has a pack_code, a later result for that plate naming a
+    DIFFERENT pack is rejected. Rows without a pack_code (NG results) never
+    conflict — they leave the stored pack_code as it is.
+    """
+    by_plate = {r["cooled_code"]: r["pack_code"] for r in rows if r.get("pack_code") is not None}
+    if not by_plate:
+        return
+    existing = dict(
+        db.execute(
+            select(LiquidCoolingAirtightnessReading.cooled_code, LiquidCoolingAirtightnessReading.pack_code).where(
+                LiquidCoolingAirtightnessReading.cooled_code.in_(by_plate.keys()),
+                LiquidCoolingAirtightnessReading.pack_code.is_not(None),
+            )
+        ).all()
+    )
+    conflicts = [
+        f"{cooled_code} (already bound to pack {existing[cooled_code]}, not {new_pack_code})"
+        for cooled_code, new_pack_code in by_plate.items()
+        if cooled_code in existing and existing[cooled_code] != new_pack_code
+    ]
+    if conflicts:
+        raise MESError(
+            RTN.DUPLICATE, f"Liquid cooling plate(s) already bound to a different pack: {', '.join(sorted(conflicts))}"
+        )
+
+
+def ensure_packs_have_one_plate(db: Session, rows: list[dict]) -> None:
+    """The reverse of ensure_plates_not_rebound: a pack has exactly one
+    liquid cooling plate, so a pack_code already recorded with one
+    cooled_code can't be reposted with a DIFFERENT one — whether that other
+    plate is already stored or in the same batch. Without this, the
+    uq_liquid_cooling_pack constraint would still block it, but through the
+    generic duplicate-key handler, which can't name the plates involved.
+    Expects rows already deduped by cooled_code, all carrying a pack_code.
+    """
+    by_pack: dict[str, set[str]] = {}
+    for r in rows:
+        by_pack.setdefault(r["pack_code"], set()).add(r["cooled_code"])
+    if not by_pack:
+        return
+    conflicts = [
+        f"{pack_code} (sent with plates {', '.join(sorted(plates))} in one batch)"
+        for pack_code, plates in by_pack.items()
+        if len(plates) > 1
+    ]
+    existing = dict(
+        db.execute(
+            select(LiquidCoolingAirtightnessReading.pack_code, LiquidCoolingAirtightnessReading.cooled_code).where(
+                LiquidCoolingAirtightnessReading.pack_code.in_(by_pack.keys())
+            )
+        ).all()
+    )
+    conflicts += [
+        f"{pack_code} (already has plate {existing[pack_code]}, not {next(iter(plates))})"
+        for pack_code, plates in by_pack.items()
+        if len(plates) == 1 and pack_code in existing and existing[pack_code] not in plates
+    ]
+    if conflicts:
+        raise MESError(
+            RTN.DUPLICATE, f"Pack(s) already have a different liquid cooling plate: {', '.join(sorted(conflicts))}"
+        )
 
 
 def ensure_pack_slots_available(db: Session, rows: list[dict]) -> None:

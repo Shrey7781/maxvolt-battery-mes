@@ -34,13 +34,23 @@ class ModulePackBinding(Base, TimestampMixin):
 
 class LiquidCoolingAirtightnessReading(Base, TimestampMixin):
     __tablename__ = "liquid_cooling_airtightness_readings"
-    __table_args__ = (UniqueConstraint("pack_code", name="uq_liquid_cooling_pack"),)
+    # Keyed on the plate (cooled_code), not the pack: an NG plate has no
+    # pack_code, and a retest of the same plate (same barcode) overwrites its
+    # row — including an NG plate later passing and getting its pack_code.
+    # pack_code is still unique — one plate per pack — but nullable, and
+    # Postgres doesn't treat NULLs as equal, so any number of NG plates fit.
+    __table_args__ = (
+        UniqueConstraint("cooled_code", name="uq_liquid_cooling_plate"),
+        UniqueConstraint("pack_code", name="uq_liquid_cooling_pack"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     api_key_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=True)
 
     proline_code: Mapped[str] = mapped_column(String(120), nullable=False)
-    pack_code: Mapped[str] = mapped_column(String(120), ForeignKey("packs.pack_code"), nullable=False, index=True)
+    pack_code: Mapped[str | None] = mapped_column(
+        String(120), ForeignKey("packs.pack_code"), nullable=True, index=True
+    )
     cooled_code: Mapped[str] = mapped_column(String(120), nullable=False)
     chargetime: Mapped[float] = mapped_column(Float, nullable=False)
     holdtime: Mapped[float] = mapped_column(Float, nullable=False)

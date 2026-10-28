@@ -15,7 +15,7 @@ class WorkOrder(Base, TimestampMixin):
 
     Deliberately independent of the cell/module/pack genealogy tables in
     app/models/entities.py: a work order can be pushed before, after, or
-    without any corresponding module-pack-binding row ever landing, so
+    without the corresponding pack ever being registered on the line, so
     pack_barcode carries no FK to packs.pack_code and no genealogy gate
     runs against it (see app/routers/work_order.py)."""
 
